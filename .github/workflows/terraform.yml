@@ -40,14 +40,14 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Configure Hetzner Token
-        if: env.HCLOUD_TOKEN != ''
+        # if: env.HCLOUD_TOKEN != ''
         run: echo "TF_VAR_hcloud_token=${{ secrets.HCLOUD_TOKEN }}" >> $GITHUB_ENV
 
       - name: Configure GitHub Token
         run: echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
 
       - name: Create dev.tfvars
-        if: env.HCLOUD_TOKEN != ''
+        # if: env.HCLOUD_TOKEN != ''
         run: |
           cat > dev.tfvars << EOF
           hcloud_token = "${{ secrets.HCLOUD_TOKEN }}"
