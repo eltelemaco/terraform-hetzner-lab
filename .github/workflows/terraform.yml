@@ -39,12 +39,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform Format
-        run: terraform fmt -check -recursive
-
-      - name: Terraform Validate
-        run: terraform validate
-
       - name: Configure Hetzner Token
         if: env.HCLOUD_TOKEN != ''
         run: echo "TF_VAR_hcloud_token=${{ secrets.HCLOUD_TOKEN }}" >> $GITHUB_ENV
@@ -66,6 +60,12 @@ jobs:
       - name: Terraform Init
         if: env.HCLOUD_TOKEN != ''
         run: terraform init
+         
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        run: terraform validate
 
       - name: Terraform Plan
         if: env.HCLOUD_TOKEN != ''
