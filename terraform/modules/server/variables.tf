@@ -23,11 +23,11 @@ variable "ssh_keys" {
   type        = list(string)
   default     = ["Hetzner"]
 }
-variable "ssh_pub_key" {
-  description = "Path to the SSH public key file"
-  type        = string
-  default     = "~/.ssh/telemaco-com.pub"
-}
+# variable "ssh_pub_key" {
+#   description = "Path to the SSH public key file"
+#   type        = string
+#   default     = "~/.ssh/telemaco-com.pub"
+# }
 
 variable "user_data" {
   description = "Cloud-init user data for server initialization"

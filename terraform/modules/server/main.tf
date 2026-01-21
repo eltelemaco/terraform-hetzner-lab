@@ -15,10 +15,10 @@ resource "hcloud_server" "this" {
   }
 }
 
-resource "hcloud_ssh_key" "this" {
-  name       = "Hetzner-Key-${var.name}"
-  public_key = file(var.ssh_pub_key)
-}
+# resource "hcloud_ssh_key" "this" {
+#   name       = "Hetzner-Key-${var.name}"
+#   public_key = file(var.ssh_pub_key)
+# }
 
 resource "hcloud_server_network" "this" {
   count      = var.network_id != null ? 1 : 0
