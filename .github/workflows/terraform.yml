@@ -45,27 +45,10 @@ jobs:
 
       - name: Configure GitHub Token
         run: echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
-
-    #   - name: Create dev.tfvars
-    #     # if: env.HCLOUD_TOKEN != ''
-    #     run: |
-    #       cat > dev.tfvars << EOF
-    #       hcloud_token = "${{ secrets.HCLOUD_TOKEN }}"
-    #       location = "hil"
-    #       server_type = "cpx21"
-    #       environment = "dev"
-    #       ssh_keys = ["Hetzner"]
-    #       EOF
-
+    
       - name: Terraform Init
         # if: env.HCLOUD_TOKEN != ''
         run: terraform init
-         
-      - name: Terraform Format
-        run: terraform fmt -recursive
-
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
 
       - name: Terraform Validate
         run: terraform validate
@@ -74,3 +57,7 @@ jobs:
         # if: env.HCLOUD_TOKEN != ''
         run: terraform plan -var-file="dev.tfvars" -no-color
         continue-on-error: true
+            
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+        run: terraform apply -var-file="dev.tfvars" -auto-approve -no-color
