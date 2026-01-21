@@ -4,7 +4,7 @@
 # the actual token value is set via environment variable or secret management for security
 
 # Server Configuration
-location    = "hil"  # Hillsboro, US West
+location    = "hil" # Hillsboro, US West
 server_type = "cpx21"
 environment = "dev"
 image       = "ubuntu-22.04"
