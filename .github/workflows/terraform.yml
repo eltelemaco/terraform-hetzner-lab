@@ -58,7 +58,7 @@ jobs:
           EOF
 
       - name: Terraform Init
-        if: env.HCLOUD_TOKEN != ''
+        # if: env.HCLOUD_TOKEN != ''
         run: terraform init
          
       - name: Terraform Format
@@ -68,6 +68,6 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        if: env.HCLOUD_TOKEN != ''
+        # if: env.HCLOUD_TOKEN != ''
         run: terraform plan -var-file="dev.tfvars" -no-color
         continue-on-error: true
