@@ -33,7 +33,7 @@ variable "server_type" {
 variable "image" {
   description = "Image ID or name for the server (e.g., ubuntu-22.04)"
   type        = string
-  #default     = "ubuntu-22.04"
+  default     = "ubuntu-22.04"
   validation {
     condition     = length(var.image) > 0
     error_message = "Image must not be empty."
