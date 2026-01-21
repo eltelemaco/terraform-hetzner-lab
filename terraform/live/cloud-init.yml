@@ -1,0 +1,161 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+# Set timezone and locale
+timezone: UTC
+locale: en_US.UTF-8
+
+# Hostname (will be overridden by Terraform server name, but good to have)
+hostname: server-lab
+
+packages:
+  - curl
+  - wget
+  - htop
+  - vim
+  - neovim
+  - git
+  - ufw
+  - net-tools
+  - fail2ban
+  - htop
+  - iotop
+  - ncdu
+  - tree
+  - jq
+  - unzip
+  - software-properties-common
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  # For Kubernetes preparation
+  - conntrack
+  - socat
+  - ebtables
+  - ethtool
+  # Monitoring
+  - prometheus-node-exporter
+
+users:
+  - name: telemaco
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [sudo, adm, docker]
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOTAys2a+sP2ResJyySks4gtOdUJXpYBLCK9/52PLYcK # SSH public key
+    shell: /bin/bash
+
+ssh_pwauth: false
+disable_root: true
+
+write_files:
+  # Enhanced SSH security
+  - path: /etc/ssh/sshd_config.d/10-custom.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      MaxAuthTries 3
+      LoginGraceTime 20
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding no
+      UsePAM yes
+      PermitEmptyPasswords no
+      PermitUserEnvironment no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+
+  # Kubernetes sysctl settings
+  - path: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+
+  # Increase inotify watches for Kubernetes
+  - path: /etc/sysctl.d/99-inotify.conf
+    content: |
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_user_instances = 8192
+
+  # Docker daemon config for Kubernetes
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "exec-opts": ["native.cgroupdriver=systemd"],
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "100m"
+        },
+        "storage-driver": "overlay2"
+      }
+
+  # Swap disable for Kubernetes
+  - path: /etc/systemd/system/disable-swap.service
+    content: |
+      [Unit]
+      Description=Disable swap
+      Before=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c "swapoff -a && sed -i '/swap/d' /etc/fstab"
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # System restart SSH with new config
+  - systemctl restart sshd
+
+  # Configure firewall
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 6443/tcp
+  - ufw allow 2379/tcp
+  - ufw allow 2380/tcp
+  - ufw allow 10250/tcp
+  - ufw allow 10251/tcp
+  - ufw allow 10252/tcp
+  - ufw allow 30000:32767/tcp
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw --force enable
+
+  # Configure fail2ban
+  - cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Apply sysctl settings
+  - sysctl --system
+
+  # Disable swap
+  - systemctl enable disable-swap
+  - systemctl start disable-swap
+
+  # Install Docker
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker telemaco
+
+  # Install Kubernetes tools
+  - curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  - echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+  - apt-get update
+  - apt-get install -y kubelet kubeadm kubectl
+  - apt-mark hold kubelet kubeadm kubectl
+
+  # Start node exporter for monitoring
+  - systemctl enable prometheus-node-exporter
+  - systemctl start prometheus-node-exporter
+
+  # Final log
+  - echo "Server fully initialized for Kubernetes lab at $(date)" > /tmp/init.log

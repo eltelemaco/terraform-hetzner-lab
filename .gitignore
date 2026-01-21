@@ -1,0 +1,21 @@
+
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfplan
+
+# Terraform variable files (contain sensitive data)
+*.tfvars
+*.tfvars.json
+
+# Override files (contain sensitive data)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md

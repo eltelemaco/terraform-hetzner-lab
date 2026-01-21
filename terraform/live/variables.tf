@@ -1,0 +1,49 @@
+variable "hcloud_token" {
+  description = "Hetzner Cloud API token for authentication"
+  type        = string
+  sensitive   = true
+  validation {
+    condition     = length(var.hcloud_token) > 0
+    error_message = "Hetzner Cloud API token must not be empty."
+  }
+}
+
+variable "location" {
+  description = "Hetzner datacenter location (e.g., hel1, fsn1, nbg1)"
+  type        = string
+  default     = "hil"
+  validation {
+    condition = contains([
+      "hel1", "fsn1", "nbg1", "ash", "hil"
+    ], var.location)
+    error_message = "Location must be a valid Hetzner datacenter."
+  }
+}
+
+variable "server_type" {
+  description = "Hetzner server type (e.g., cx11, cpx11)"
+  type        = string
+  default     = "cpx21"
+  validation {
+    condition     = length(var.server_type) > 0
+    error_message = "Server type must not be empty."
+  }
+}
+
+variable "ssh_keys" {
+  description = "List of SSH key names to add to servers"
+  type        = list(string)
+  default     = []
+}
+
+variable "environment" {
+  description = "Environment name (e.g., dev, staging, prod)"
+  type        = string
+  default     = "dev"
+  validation {
+    condition = contains([
+      "dev", "staging", "prod"
+    ], var.environment)
+    error_message = "Environment must be one of: dev, staging, prod."
+  }
+}
