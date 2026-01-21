@@ -1,3 +1,4 @@
+# This workflow automates the deploymet of Terraform configurations to Hetzner Cloud.
 name: 'Terraform CI'
 
 on:
@@ -24,6 +25,7 @@ jobs:
   terraform:
     name: 'Terraform Validate and Plan'
     runs-on: ubuntu-latest
+    environment: dev
     defaults:
       run:
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -45,7 +47,21 @@ jobs:
 
       - name: Configure Hetzner Token
         if: env.HCLOUD_TOKEN != ''
-        run: echo "HCLOUD_TOKEN=${{ secrets.HCLOUD_TOKEN }}" >> $GITHUB_ENV
+        run: echo "TF_VAR_hcloud_token=${{ secrets.HCLOUD_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Configure GitHub Token
+        run: echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Create dev.tfvars
+        if: env.HCLOUD_TOKEN != ''
+        run: |
+          cat > dev.tfvars << EOF
+          hcloud_token = "${{ secrets.HCLOUD_TOKEN }}"
+          location = "hil"
+          server_type = "cpx21"
+          environment = "dev"
+          ssh_keys = ["Hetzner"]
+          EOF
 
       - name: Terraform Init
         if: env.HCLOUD_TOKEN != ''
@@ -53,5 +69,5 @@ jobs:
 
       - name: Terraform Plan
         if: env.HCLOUD_TOKEN != ''
-        run: terraform plan -var-file="terraform.tfvars" -no-color
+        run: terraform plan -var-file="dev.tfvars" -no-color
         continue-on-error: true

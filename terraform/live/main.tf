@@ -32,7 +32,7 @@ module "server_lab" {
 
   name        = "serverlab-${var.environment}-${var.location}"
   server_type = var.server_type
-  image       = "ubuntu-22.04"
+  image       = var.image
   location    = var.location
   ssh_keys    = var.ssh_keys
   user_data   = file("${path.module}/cloud-init.yml")
