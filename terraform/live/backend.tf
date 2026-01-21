@@ -1,5 +1,18 @@
 terraform {
-  backend "local" {
-    path = "terraform.tfstate"
-  }
+    cloud {
+      organization = "TelemacoInfraLabs"
+
+       workspaces {
+         name = "terraform-hetzner-lab"
+       }
+    }
+
+
+#   backend "remote" {
+#     organization = "TelemacoInfraLabs"
+
+#     workspaces {
+#       name = "terraform-hetzner-lab"
+#     }
+#   }
 }

@@ -45,6 +45,9 @@ jobs:
 
       - name: Configure GitHub Token
         run: echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Configure Terraform Token
+        run: echo "TF_TOKEN=${{ secrets.TF_TOKEN }}" >> $GITHUB_ENV
     
       - name: Terraform Init
         # if: env.HCLOUD_TOKEN != ''
