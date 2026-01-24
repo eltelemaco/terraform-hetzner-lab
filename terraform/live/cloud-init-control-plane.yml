@@ -1,0 +1,371 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+# Set timezone and locale
+timezone: UTC
+locale: en_US.UTF-8
+
+hostname: k3s-control-plane
+
+packages:
+  - curl
+  - wget
+  - htop
+  - vim
+  - git
+  - ufw
+  - net-tools
+  - fail2ban
+  - jq
+  - unzip
+  - ansible
+  - python3
+  - python3-pip
+  # For Kubernetes preparation
+  - conntrack
+  - socat
+  - ebtables
+  - ethtool
+
+users:
+  - name: telemaco
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [sudo, adm]
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICGGzgWcoJXqnlozvSumN55Ez1OGX6g+SIA1NYuR0B9m
+    shell: /bin/bash
+
+ssh_pwauth: false
+disable_root: true
+
+write_files:
+  # Enhanced SSH security
+  - path: /etc/ssh/sshd_config.d/10-custom.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      MaxAuthTries 3
+      LoginGraceTime 20
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding no
+      UsePAM yes
+      PermitEmptyPasswords no
+      PermitUserEnvironment no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+
+  # Kubernetes sysctl settings
+  - path: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+
+  # Increase inotify watches for Kubernetes
+  - path: /etc/sysctl.d/99-inotify.conf
+    content: |
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_user_instances = 8192
+
+  # Swap disable service
+  - path: /etc/systemd/system/disable-swap.service
+    content: |
+      [Unit]
+      Description=Disable swap for Kubernetes
+      Before=k3s.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c "swapoff -a && sed -i '/swap/d' /etc/fstab"
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # SSH private key for Ansible (injected from HCP Terraform secret)
+  - path: /root/.ssh/hcloud
+    content: |
+      ${ssh_private_key}
+    permissions: "0600"
+
+  # Ansible configuration
+  - path: /opt/ansible/ansible.cfg
+    content: |
+      [defaults]
+      inventory = /opt/ansible/inventory.ini
+      host_key_checking = False
+      log_path = /opt/ansible/logs/ansible.log
+      retry_files_enabled = False
+      timeout = 30
+      
+      [ssh_connection]
+      ssh_args = -o ControlMaster=auto -o ControlPersist=60s -o StrictHostKeyChecking=no
+
+  # Ansible inventory (will be templated by Terraform with worker IPs)
+  - path: /opt/ansible/inventory.ini
+    content: |
+      [control_plane]
+      localhost ansible_connection=local
+
+      [workers]
+      ${worker_ips}
+
+      [all:vars]
+      ansible_user=telemaco
+      ansible_ssh_private_key_file=/home/telemaco/.ssh/id_ed25519
+      ansible_python_interpreter=/usr/bin/python3
+
+  # Playbook 1: Self-configure control plane
+  - path: /opt/ansible/playbooks/self-configure.yml
+    content: |
+      ---
+      - name: Configure K3s Control Plane
+        hosts: control_plane
+        become: yes
+        tasks:
+          - name: Wait for system to be ready
+            wait_for:
+              timeout: 30
+            delegate_to: localhost
+
+          - name: Install K3s server
+            shell: |
+              curl -sfL https://get.k3s.io | sh -s - \
+                --disable traefik \
+                --write-kubeconfig-mode 644
+            args:
+              creates: /usr/local/bin/k3s
+
+          - name: Wait for K3s API server to be ready
+            wait_for:
+              port: 6443
+              timeout: 300
+
+          - name: Set kubeconfig ownership
+            file:
+              path: /etc/rancher/k3s/k3s.yaml
+              owner: telemaco
+              group: telemaco
+              mode: '0644'
+
+          - name: Set node token ownership
+            file:
+              path: /var/lib/rancher/k3s/server/node-token
+              owner: telemaco
+              group: telemaco
+              mode: '0644'
+
+          - name: Wait for control plane node to be ready
+            shell: k3s kubectl get nodes | grep -i ready
+            register: node_ready
+            until: node_ready.rc == 0
+            retries: 30
+            delay: 10
+
+          - name: Log control plane setup complete
+            debug:
+              msg: "Control plane K3s installation completed successfully"
+
+  # Playbook 2: Configure workers
+  - path: /opt/ansible/playbooks/configure-workers.yml
+    content: |
+      ---
+      - name: Configure K3s Worker Nodes
+        hosts: workers
+        become: yes
+        gather_facts: no
+        tasks:
+          - name: Wait for workers to be reachable
+            wait_for_connection:
+              timeout: 600
+              delay: 10
+
+          - name: Gather facts after connection
+            setup:
+
+          - name: Read K3s token from control plane
+            slurp:
+              src: /var/lib/rancher/k3s/server/node-token
+            register: k3s_token
+            delegate_to: localhost
+            become: yes
+
+          - name: Get control plane private IP
+            set_fact:
+              control_plane_ip: "{{ hostvars['localhost']['ansible_default_ipv4']['address'] }}"
+            delegate_to: localhost
+
+          - name: Install K3s agent on workers
+            shell: |
+              curl -sfL https://get.k3s.io | K3S_URL=https://{{ control_plane_ip }}:6443 \
+                K3S_TOKEN={{ k3s_token.content | b64decode | trim }} sh -
+            args:
+              creates: /usr/local/bin/k3s-agent
+
+          - name: Wait for worker to connect to cluster
+            wait_for:
+              timeout: 60
+            delegate_to: localhost
+
+          - name: Log worker configuration complete
+            debug:
+              msg: "Worker {{ inventory_hostname }} joined cluster successfully"
+
+  # Playbook 3: Post-configuration
+  - path: /opt/ansible/playbooks/post-config.yml
+    content: |
+      ---
+      - name: K3s Cluster Post-Configuration
+        hosts: control_plane
+        become: yes
+        tasks:
+          - name: Wait for all nodes to join cluster
+            shell: k3s kubectl get nodes --no-headers | wc -l
+            register: node_count
+            until: node_count.stdout | int >= 2
+            retries: 60
+            delay: 10
+
+          - name: Get all nodes
+            shell: k3s kubectl get nodes -o json
+            register: nodes_json
+
+          - name: Remove uninitialized taints from all nodes
+            shell: |
+              k3s kubectl taint nodes --all node.cloudprovider.kubernetes.io/uninitialized:NoSchedule- || true
+            ignore_errors: yes
+
+          - name: Label control-plane node
+            shell: |
+              k3s kubectl label node {{ ansible_hostname }} node-role.kubernetes.io/control-plane=true --overwrite
+            ignore_errors: yes
+
+          - name: Label worker nodes
+            shell: |
+              for node in $(k3s kubectl get nodes -o name | grep -v {{ ansible_hostname }}); do
+                k3s kubectl label $node node-role.kubernetes.io/worker= --overwrite
+              done
+            ignore_errors: yes
+
+          - name: Display final cluster status
+            shell: k3s kubectl get nodes -o wide
+            register: cluster_status
+
+          - name: Show cluster status
+            debug:
+              msg: "{{ cluster_status.stdout_lines }}"
+
+          - name: Create completion marker
+            file:
+              path: /opt/ansible/.provisioned
+              state: touch
+              mode: '0644'
+
+  # Systemd service for Ansible provisioning
+  - path: /etc/systemd/system/k3s-ansible-provisioner.service
+    content: |
+      [Unit]
+      Description=K3s Cluster Ansible Provisioner
+      After=cloud-init.target network-online.target
+      Wants=network-online.target
+      ConditionPathExists=!/opt/ansible/.provisioned
+
+      [Service]
+      Type=oneshot
+      User=root
+      WorkingDirectory=/opt/ansible
+      ExecStart=/usr/bin/ansible-playbook playbooks/self-configure.yml playbooks/configure-workers.yml playbooks/post-config.yml
+      StandardOutput=append:/opt/ansible/logs/service.log
+      StandardError=append:/opt/ansible/logs/service-error.log
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Systemd timer for Ansible provisioning
+  - path: /etc/systemd/system/k3s-ansible-provisioner.timer
+    content: |
+      [Unit]
+      Description=K3s Cluster Provisioner Timer
+      Requires=k3s-ansible-provisioner.service
+
+      [Timer]
+      OnBootSec=3min
+      OnUnitActiveSec=2min
+      Unit=k3s-ansible-provisioner.service
+
+      [Install]
+      WantedBy=timers.target
+
+  # Helper script for monitoring provisioning status
+  - path: /usr/local/bin/k3s-status
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      echo "=== K3s Cluster Provisioning Status ==="
+      echo ""
+      echo "Ansible Service Status:"
+      systemctl status k3s-ansible-provisioner.service --no-pager | head -20
+      echo ""
+      echo "Ansible Timer Status:"
+      systemctl status k3s-ansible-provisioner.timer --no-pager | head -10
+      echo ""
+      echo "Provisioning Marker:"
+      if [ -f /opt/ansible/.provisioned ]; then
+        echo "✅ Provisioning completed at $(stat -c %y /opt/ansible/.provisioned)"
+      else
+        echo "⏳ Provisioning in progress..."
+      fi
+      echo ""
+      echo "Recent Ansible Logs (last 30 lines):"
+      tail -30 /opt/ansible/logs/ansible.log 2>/dev/null || echo "No logs yet"
+      echo ""
+      echo "K3s Cluster Nodes:"
+      k3s kubectl get nodes -o wide 2>/dev/null || echo "K3s not ready yet"
+
+runcmd:
+  # System configuration
+  - systemctl restart sshd
+
+  # Configure firewall
+  - ufw allow 22/tcp
+  - ufw allow 6443/tcp    # K3s API
+  - ufw allow 10250/tcp   # Kubelet
+  - ufw allow from 10.0.0.0/24  # Allow private network
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw --force enable
+
+  # Configure fail2ban
+  - cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Apply sysctl settings
+  - sysctl --system
+
+  # Disable swap
+  - systemctl enable disable-swap
+  - systemctl start disable-swap
+
+  # Create Ansible directories
+  - mkdir -p /opt/ansible/playbooks
+  - mkdir -p /opt/ansible/logs
+  - chown -R telemaco:telemaco /opt/ansible
+
+  # Copy shared SSH private key for Ansible to connect to workers
+  - mkdir -p /home/telemaco/.ssh
+  - cp /root/.ssh/hcloud /home/telemaco/.ssh/id_ed25519
+  - chown telemaco:telemaco /home/telemaco/.ssh/id_ed25519
+  - chmod 600 /home/telemaco/.ssh/id_ed25519
+
+  # Enable and start Ansible provisioning timer
+  - systemctl daemon-reload
+  - systemctl enable k3s-ansible-provisioner.timer
+  - systemctl start k3s-ansible-provisioner.timer
+
+  # Final log
+  - echo "Control plane initialized - Ansible provisioning will start in 3 minutes" > /tmp/init.log
+  - echo "Run 'k3s-status' to monitor provisioning progress" >> /tmp/init.log

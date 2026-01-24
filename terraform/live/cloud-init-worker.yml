@@ -1,0 +1,121 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+# Set timezone and locale
+timezone: UTC
+locale: en_US.UTF-8
+
+hostname: k3s-worker
+
+packages:
+  - curl
+  - wget
+  - htop
+  - vim
+  - git
+  - ufw
+  - net-tools
+  - fail2ban
+  - jq
+  - python3
+  # For Kubernetes preparation
+  - conntrack
+  - socat
+  - ebtables
+  - ethtool
+
+users:
+  - name: telemaco
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [sudo, adm]
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICGGzgWcoJXqnlozvSumN55Ez1OGX6g+SIA1NYuR0B9m
+    shell: /bin/bash
+
+ssh_pwauth: false
+disable_root: true
+
+write_files:
+  # Enhanced SSH security
+  - path: /etc/ssh/sshd_config.d/10-custom.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      MaxAuthTries 3
+      LoginGraceTime 20
+      X11Forwarding no
+      AllowAgentForwarding no
+      AllowTcpForwarding no
+      UsePAM yes
+      PermitEmptyPasswords no
+      PermitUserEnvironment no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+
+  # Kubernetes sysctl settings
+  - path: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+
+  # Increase inotify watches for Kubernetes
+  - path: /etc/sysctl.d/99-inotify.conf
+    content: |
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_user_instances = 8192
+
+  # Swap disable service
+  - path: /etc/systemd/system/disable-swap.service
+    content: |
+      [Unit]
+      Description=Disable swap for Kubernetes
+      Before=k3s.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/bash -c "swapoff -a && sed -i '/swap/d' /etc/fstab"
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Worker ready marker for control plane verification
+  - path: /tmp/worker-ready
+    content: |
+      ready
+
+runcmd:
+  # System configuration
+  - systemctl restart sshd
+
+  # Configure firewall - allow traffic from private network and essential ports
+  - ufw allow 22/tcp
+  - ufw allow from 10.0.0.0/24  # Allow all traffic from private network
+  - ufw allow 10250/tcp  # Kubelet API
+  - ufw allow 30000:32767/tcp  # NodePort Services
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw --force enable
+
+  # Configure fail2ban
+  - cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Load required kernel modules
+  - modprobe br_netfilter
+  - modprobe overlay
+  - echo "br_netfilter" >> /etc/modules-load.d/k8s.conf
+  - echo "overlay" >> /etc/modules-load.d/k8s.conf
+
+  # Apply sysctl settings
+  - sysctl --system
+
+  # Disable swap
+  - systemctl enable disable-swap
+  - systemctl start disable-swap
+
+  # Final log
+  - echo "Worker node initialized and ready for Ansible provisioning at $(date)" > /tmp/init.log

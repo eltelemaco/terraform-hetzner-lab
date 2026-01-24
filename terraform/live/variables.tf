@@ -29,6 +29,15 @@ variable "server_type" {
     error_message = "Server type must not be empty."
   }
 }
+variable "server_name" {
+  description = "Name of the server"
+  type        = string
+  #default     = "serverlab"
+  validation {
+    condition     = length(var.server_name) > 0
+    error_message = "Server name must not be empty."
+  }
+}
 
 variable "image" {
   description = "Image ID or name for the server (e.g., ubuntu-22.04)"
@@ -55,5 +64,15 @@ variable "environment" {
       "dev", "staging", "prod"
     ], var.environment)
     error_message = "Environment must be one of: dev, staging, prod."
+  }
+}
+
+variable "ssh_private_key" {
+  description = "SSH private key for Ansible to connect to worker nodes (stored in HCP Terraform as sensitive variable)"
+  type        = string
+  sensitive   = true
+  validation {
+    condition     = length(var.ssh_private_key) > 0
+    error_message = "SSH private key must not be empty."
   }
 }

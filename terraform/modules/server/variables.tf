@@ -21,7 +21,7 @@ variable "location" {
 variable "ssh_keys" {
   description = "List of SSH key names to add to the server"
   type        = list(string)
-  default     = ["Hetzner"]
+  default     = ["Secure HCloud"]
 }
 # variable "ssh_pub_key" {
 #   description = "Path to the SSH public key file"

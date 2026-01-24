@@ -1,0 +1,105 @@
+---
+- name: Deploy K3s Control Plane
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Wait for system to be ready
+      wait_for_connection:
+        timeout: 300
+
+    - name: Check if K3s is already installed
+      stat:
+        path: /usr/local/bin/k3s
+      register: k3s_installed
+
+    - name: Install K3s server
+      shell: |
+        curl -sfL https://get.k3s.io | sh -s - \
+          --disable traefik \
+          --write-kubeconfig-mode 644
+      when: not k3s_installed.stat.exists
+
+    - name: Wait for K3s to be ready
+      wait_for:
+        port: 6443
+        delay: 5
+        timeout: 300
+
+    - name: Get K3s node token
+      slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_raw
+
+    - name: Set K3s token fact
+      set_fact:
+        k3s_token: "{{ k3s_token_raw.content | b64decode | trim }}"
+
+    - name: Change kubeconfig ownership
+      file:
+        path: /etc/rancher/k3s/k3s.yaml
+        owner: telemaco
+        group: telemaco
+        mode: '0600'
+
+    - name: Label control plane node
+      shell: |
+        k3s kubectl label nodes {{ ansible_hostname }} node-role.kubernetes.io/control-plane=true --overwrite
+      ignore_errors: true
+
+- name: Deploy K3s Workers
+  hosts: workers
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Wait for system to be ready
+      wait_for_connection:
+        timeout: 300
+
+    - name: Check if K3s agent is already installed
+      stat:
+        path: /usr/local/bin/k3s
+      register: k3s_agent_installed
+
+    - name: Install K3s agent
+      shell: |
+        curl -sfL https://get.k3s.io | \
+        K3S_URL=https://{{ hostvars[groups['control_plane'][0]]['ansible_default_ipv4']['address'] }}:6443 \
+        K3S_TOKEN={{ hostvars[groups['control_plane'][0]]['k3s_token'] }} sh -
+      when: not k3s_agent_installed.stat.exists
+
+    - name: Wait for agent to be ready
+      wait_for:
+        timeout: 60
+
+- name: Post-Installation Configuration
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for all nodes to join
+      shell: k3s kubectl get nodes --no-headers | wc -l
+      register: node_count
+      until: node_count.stdout | int == groups['k3s_cluster'] | length
+      retries: 30
+      delay: 10
+
+    - name: Remove uninitialized taints from all nodes
+      shell: |
+        for node in $(k3s kubectl get nodes -o name); do
+          k3s kubectl taint $node node.cloudprovider.kubernetes.io/uninitialized:NoSchedule- 2>/dev/null || true
+        done
+
+    - name: Label worker nodes
+      shell: |
+        for node in $(k3s kubectl get nodes -o name | grep -v {{ ansible_hostname }}); do
+          k3s kubectl label $node node-role.kubernetes.io/worker= --overwrite
+        done
+
+    - name: Display cluster status
+      shell: k3s kubectl get nodes -o wide
+      register: cluster_status
+
+    - name: Show cluster nodes
+      debug:
+        msg: "{{ cluster_status.stdout_lines }}"

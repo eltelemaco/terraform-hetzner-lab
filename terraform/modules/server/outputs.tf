@@ -9,8 +9,13 @@ output "server_name" {
 }
 
 output "ipv4_address" {
-  description = "IPv4 address of the server"
+  description = "Public IPv4 address of the server"
   value       = hcloud_server.this.ipv4_address
+}
+
+output "ipv4_address_private" {
+  description = "Private IPv4 address of the server in the network"
+  value       = length(hcloud_server_network.this) > 0 ? hcloud_server_network.this[0].ip : null
 }
 
 output "ipv6_address" {
