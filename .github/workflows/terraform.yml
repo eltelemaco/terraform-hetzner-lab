@@ -73,6 +73,24 @@ jobs:
         run: terraform plan -no-color -out=tfplan
         continue-on-error: true
 
+      - name: Extract Terraform Cloud Run ID
+        id: runid
+        if: steps.plan.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > plan_stdout.txt <<'EOF'
+          ${{ steps.plan.outputs.stdout }}
+          EOF
+
+          RUN_ID=$(grep -oE 'runs/run-[A-Za-z0-9]+' plan_stdout.txt | head -n 1 | sed 's#runs/##' || true)
+          if [ -z "${RUN_ID}" ]; then
+            echo "No Terraform Cloud run id detected in plan output."
+          else
+            echo "Detected Terraform Cloud run id: ${RUN_ID}"
+            echo "run_id=${RUN_ID}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         if: steps.plan.outcome == 'success'
@@ -114,4 +132,24 @@ jobs:
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/develop' && github.event_name == 'push' && steps.plan.outcome == 'success'
-        run: terraform apply -auto-approve tfplan
+        shell: bash
+        env:
+          TFC_TOKEN: ${{ secrets.TF_TOKEN }}
+          RUN_ID: ${{ steps.runid.outputs.run_id }}
+        run: |
+          set -euo pipefail
+
+          # If Terraform Cloud requires a manual apply in the UI, approve/apply the run via API.
+          if [ -n "${RUN_ID:-}" ]; then
+            echo "Applying Terraform Cloud run via API: ${RUN_ID}"
+            curl -sS -X POST \
+              -H "Authorization: Bearer ${TFC_TOKEN}" \
+              -H "Content-Type: application/vnd.api+json" \
+              "https://app.terraform.io/api/v2/runs/${RUN_ID}/actions/apply" \
+              -d '{"comment":"Applied by GitHub Actions"}'
+            exit 0
+          fi
+
+          # Fallback: apply local saved plan file.
+          echo "RUN_ID not found; falling back to terraform apply tfplan"
+          terraform apply -auto-approve tfplan
