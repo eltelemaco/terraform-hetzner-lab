@@ -354,7 +354,8 @@ The `server` module (`terraform/modules/server`) is a reusable component for pro
 
 | Document | Description |
 |----------|-------------|
-| [Quick Start](docs/QUICK_START.md) | Get started quickly with either deployment method |
+| [Quick Start](docs/QUICK_START.md) | Get started quickly with deployment |
+| [Replication Template](docs/REPLICATION_TEMPLATE.md) | Complete template to replicate this project |
 | [Deployment Comparison](docs/DEPLOYMENT_COMPARISON.md) | Compare pure Terraform vs Ansible approaches |
 | [HCP Terraform Setup](docs/HCP_TERRAFORM_SETUP.md) | Configure HashiCorp Cloud Platform backend |
 | [Ansible Deployment Plan](docs/ANSIBLE_CONTROL_PLANE_DEPLOYMENT_PLAN.md) | Detailed Ansible deployment architecture |
