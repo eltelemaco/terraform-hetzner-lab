@@ -1,7 +1,7 @@
 # Outputs for important resource attributes
-output "server_lab_name"  {
+output "server_lab_name" {
   description = "Name of the server-lab server"
-  value       = module.server_lab.server_name  
+  value       = module.server_lab.server_name
 }
 
 output "server_lab_id" {

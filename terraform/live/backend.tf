@@ -1,18 +1,18 @@
 terraform {
-    cloud {
-      organization = "TelemacoInfraLabs"
+  cloud {
+    organization = "TelemacoInfraLabs"
 
-       workspaces {
-         name = "terraform-hetzner-lab"
-       }
+    workspaces {
+      name = "terraform-hetzner-lab"
     }
+  }
 
 
-#   backend "remote" {
-#     organization = "TelemacoInfraLabs"
+  #   backend "remote" {
+  #     organization = "TelemacoInfraLabs"
 
-#     workspaces {
-#       name = "terraform-hetzner-lab"
-#     }
-#   }
+  #     workspaces {
+  #       name = "terraform-hetzner-lab"
+  #     }
+  #   }
 }
